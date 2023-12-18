@@ -1930,6 +1930,18 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
   unsigned Align = 8;
   AlignRequirementKind AlignRequirement = AlignRequirementKind::None;
   LangAS AS = LangAS::Default;
+
+#if 1 //-- HOIBY WAS HERE
+  if (T->getTypeClass() == Type::TemplateTypeParm) {
+    //    assert(!T->isDependentType() && "should not see dependent types
+    //here");
+    const Type *T2 = cast<TemplateTypeParmType>(T)->desugar().getTypePtr();
+    if (T == T2)
+      return TypeInfo(0, 8, AlignRequirementKind::None);
+    return getTypeInfo(T2);
+  }
+#endif
+
   switch (T->getTypeClass()) {
 #define TYPE(Class, Base)
 #define ABSTRACT_TYPE(Class, Base)

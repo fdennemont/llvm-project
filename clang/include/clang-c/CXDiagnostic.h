@@ -282,6 +282,11 @@ CINDEX_LINKAGE CXString clang_getDiagnosticSpelling(CXDiagnostic);
 CINDEX_LINKAGE CXString clang_getDiagnosticOption(CXDiagnostic Diag,
                                                   CXString *Disable);
 
+#if 1 ///-- HOIBY WAS HERE
+CINDEX_LINKAGE unsigned clang_getDiagnosticId(CXDiagnostic);
+#endif
+
+
 /**
  * Retrieve the category number for this diagnostic.
  *

@@ -299,6 +299,7 @@ types::ID types::lookupTypeForExtension(llvm::StringRef Ext) {
       .Case("F", TY_Fortran)
       .Case("f", TY_PP_Fortran)
       .Case("h", TY_CHeader)
+      .Case("inl", TY_CHeader) //-- HOIBY WAS HERE
       .Case("H", TY_CXXHeader)
       .Case("i", TY_PP_C)
       .Case("m", TY_ObjC)

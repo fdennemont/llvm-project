@@ -81,10 +81,12 @@ if(Z3_INCLUDE_DIR AND Z3_LIBRARIES)
   check_z3_version(${Z3_INCLUDE_DIR} ${Z3_LIBRARIES})
 endif()
 
+# HOIBY WAS HERE
+#message(FATAL_ERROR "SCHLOUGATE 42.42 is the best ${CMAKE_CROSSCOMPILING} and ${Z3_INCLUDE_DIR}")
+
 # If the dynamic check fails, we might be cross compiling: if that's the case,
 # check the version in the headers, otherwise, fail with a message
-if(NOT Z3_VERSION_STRING AND (CMAKE_CROSSCOMPILING AND
-                              Z3_INCLUDE_DIR AND
+if(NOT Z3_VERSION_STRING AND (Z3_INCLUDE_DIR AND
                               EXISTS "${Z3_INCLUDE_DIR}/z3_version.h"))
   # TODO: print message warning that we couldn't find a compatible lib?
 
