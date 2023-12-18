@@ -26,9 +26,9 @@ jobs:
           - windows-latest
         build-type:
           - Release
-          - Debug
+#          - Debug
         arch:
-          - amd64
+#          - amd64
           - x86
     steps:
     - name: Setup Windows
