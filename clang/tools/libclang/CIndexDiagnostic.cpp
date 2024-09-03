@@ -466,3 +466,14 @@ unsigned clang_getNumDiagnosticsInSet(CXDiagnosticSet Diags) {
     return D->getNumDiagnostics();
   return 0;
 }
+
+#if 1 ///-- HOIBY WAS HERE
+unsigned clang_getDiagnosticId(CXDiagnostic Diagnostic) {
+  CXDiagnosticImpl &Diag = *(CXDiagnosticImpl *)Diagnostic;
+  if (CXStoredDiagnostic::classof(&Diag)) {
+    CXStoredDiagnostic &StoredDiag = *(CXStoredDiagnostic *)Diagnostic;
+    return StoredDiag.Diag.getID();
+  }
+  return 0;
+}
+#endif

@@ -578,6 +578,10 @@ CINDEX_LINKAGE unsigned clang_getNumDiagnostics(CXTranslationUnit Unit);
 CINDEX_LINKAGE CXDiagnostic clang_getDiagnostic(CXTranslationUnit Unit,
                                                 unsigned Index);
 
+#if 1 ///-- HOIBY WAS HERE
+CINDEX_LINKAGE unsigned clang_getDiagnosticId(CXDiagnostic);
+#endif
+
 /**
  * Retrieve the complete set of diagnostics associated with a
  *        translation unit.
