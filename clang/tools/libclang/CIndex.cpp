@@ -61,6 +61,7 @@
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/thread.h"
+#include "SPR_Profiler.h"
 #include <mutex>
 #include <optional>
 
@@ -3753,7 +3754,7 @@ bool CursorVisitor::RunVisitorWorkList(VisitorWorkList &WL) {
           if (Visit(Proto.getReturnLoc()))
             return true;
         }
-#endif
+#endif        
       }
       break;
     }
@@ -4246,13 +4247,16 @@ enum CXErrorCode clang_parseTranslationUnit2(
     const char *const *command_line_args, int num_command_line_args,
     struct CXUnsavedFile *unsaved_files, unsigned num_unsaved_files,
     unsigned options, CXTranslationUnit *out_TU) {
+  PROFILER_WATCH_ON("clang_parseTranslationUnit2");
   noteBottomOfStack();
   SmallVector<const char *, 4> Args;
   Args.push_back("clang");
   Args.append(command_line_args, command_line_args + num_command_line_args);
-  return clang_parseTranslationUnit2FullArgv(
+  CXErrorCode ret = clang_parseTranslationUnit2FullArgv(
       CIdx, source_filename, Args.data(), Args.size(), unsaved_files,
       num_unsaved_files, options, out_TU);
+  PROFILER_WATCH_OFF();
+  return ret;
 }
 
 enum CXErrorCode clang_parseTranslationUnit2FullArgv(
@@ -4271,10 +4275,12 @@ enum CXErrorCode clang_parseTranslationUnit2FullArgv(
 
   CXErrorCode result = CXError_Failure;
   auto ParseTranslationUnitImpl = [=, &result] {
+    PROFILER_WATCH_ON("ParseTranslationUnitImpl");
     noteBottomOfStack();
     result = clang_parseTranslationUnit_Impl(
         CIdx, source_filename, command_line_args, num_command_line_args,
         llvm::ArrayRef(unsaved_files, num_unsaved_files), options, out_TU);
+    PROFILER_WATCH_OFF();
   };
 
   llvm::CrashRecoveryContext CRC;
@@ -4684,7 +4690,9 @@ int clang_saveTranslationUnit(CXTranslationUnit TU, const char *FileName,
 
   CXSaveError result;
   auto SaveTranslationUnitImpl = [=, &result]() {
+    PROFILER_WATCH_ON("SaveTranslationUnitImpl");
     result = clang_saveTranslationUnit_Impl(TU, FileName, options);
+    PROFILER_WATCH_OFF();
   };
 
   if (!CXXUnit->getDiagnostics().hasUnrecoverableErrorOccurred()) {
@@ -4797,15 +4805,20 @@ int clang_reparseTranslationUnit(CXTranslationUnit TU,
                                  unsigned num_unsaved_files,
                                  struct CXUnsavedFile *unsaved_files,
                                  unsigned options) {
+  PROFILER_WATCH_ON("clang_reparseTranslationUnit");
   LOG_FUNC_SECTION { *Log << TU; }
 
-  if (num_unsaved_files && !unsaved_files)
+  if (num_unsaved_files && !unsaved_files) {
+    PROFILER_WATCH_OFF();
     return CXError_InvalidArguments;
+  }
 
   CXErrorCode result;
   auto ReparseTranslationUnitImpl = [=, &result]() {
+    PROFILER_WATCH_ON("ReparseTranslationUnitImpl");
     result = clang_reparseTranslationUnit_Impl(
         TU, llvm::ArrayRef(unsaved_files, num_unsaved_files), options);
+    PROFILER_WATCH_OFF();
   };
 
   llvm::CrashRecoveryContext CRC;
@@ -4813,10 +4826,12 @@ int clang_reparseTranslationUnit(CXTranslationUnit TU,
   if (!RunSafely(CRC, ReparseTranslationUnitImpl)) {
     fprintf(stderr, "libclang: crash detected during reparsing\n");
     cxtu::getASTUnit(TU)->setUnsafeToFree(true);
+    PROFILER_WATCH_OFF();
     return CXError_Crashed;
   } else if (getenv("LIBCLANG_RESOURCE_USAGE"))
     PrintLibclangResourceUsage(TU);
 
+  PROFILER_WATCH_OFF();
   return result;
 }
 
@@ -8406,7 +8421,9 @@ void clang_annotateTokens(CXTranslationUnit TU, CXToken *Tokens,
   ASTUnit::ConcurrencyCheck Check(*CXXUnit);
 
   auto AnnotateTokensImpl = [=]() {
+    PROFILER_WATCH_ON("AnnotateTokensImpl");
     clang_annotateTokensImpl(TU, CXXUnit, Tokens, NumTokens, Cursors);
+    PROFILER_WATCH_OFF();
   };
   llvm::CrashRecoveryContext CRC;
   if (!RunSafely(CRC, AnnotateTokensImpl, GetSafetyThreadStackSize() * 2)) {
@@ -9915,4 +9932,18 @@ enum CXUnaryOperatorKind clang_getCursorUnaryOperatorKind(CXCursor cursor) {
   }
 
   return CXUnaryOperator_Invalid;
+}
+
+GPTHREADPROTECTION_ENABLE gThreadProtection_Enable = 0;
+GPTHREADPROTECTION_DISABLE gThreadProtection_Disable = 0;
+GSCOPE_CTX_T_ONENTER gSCOPE_CTX_t_OnEnter = 0;
+GSCOPE_CTX_T_ONLEAVE gSCOPE_CTX_t_OnLeave = 0;
+SRCLOC_INIT gSRCLOC_Init = 0;
+
+void clang_InitProfilerCallbacks(GPTHREADPROTECTION_ENABLE ThreadProtection_Enable, GPTHREADPROTECTION_DISABLE ThreadProtection_Disable, GSCOPE_CTX_T_ONENTER SCOPE_CTX_t_OnEnter, GSCOPE_CTX_T_ONLEAVE SCOPE_CTX_t_OnLeave, SRCLOC_INIT SRCLOC_Init){
+  gThreadProtection_Enable = ThreadProtection_Enable;
+  gThreadProtection_Disable = ThreadProtection_Disable;
+  gSCOPE_CTX_t_OnEnter = SCOPE_CTX_t_OnEnter;
+  gSCOPE_CTX_t_OnLeave = SCOPE_CTX_t_OnLeave;
+  gSRCLOC_Init = SRCLOC_Init;
 }

@@ -114,6 +114,7 @@ LLVM_13 {
     clang_HTMLTagComment_getTagName;
     clang_IndexAction_create;
     clang_IndexAction_dispose;
+    clang_InitProfilerCallbacks;
     clang_InlineCommandComment_getArgText;
     clang_InlineCommandComment_getCommandName;
     clang_InlineCommandComment_getNumArgs;

@@ -59,6 +59,7 @@
 #include <optional>
 #include <time.h>
 #include <utility>
+#include "../../tools/libclang/SPR_Profiler.h"
 
 using namespace clang;
 
@@ -1281,8 +1282,10 @@ compileModuleImpl(CompilerInstance &ImportingInstance, SourceLocation ImportLoc,
   // thread so that we get a stack large enough.
   bool Crashed = !llvm::CrashRecoveryContext().RunSafelyOnThread(
       [&]() {
+        PROFILER_WATCH_ON("ParseTranslationUnitImpl");
         GenerateModuleFromModuleMapAction Action;
         Instance.ExecuteAction(Action);
+        PROFILER_WATCH_OFF();
       },
       DesiredStackSize);
 
