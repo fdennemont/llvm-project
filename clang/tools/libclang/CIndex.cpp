@@ -3742,11 +3742,18 @@ bool CursorVisitor::RunVisitorWorkList(VisitorWorkList &WL) {
             if (Visit(MakeCXCursor(Proto.getParam(I), TU)))
               return true;
         }
+#if 1 //--- HOIBY WAS HERE
+        for (auto pInitExpr : E->capture_inits()) {
+          if (pInitExpr && Visit(pInitExpr))
+            return true;
+        }
+#else
         if (E->hasExplicitResultType()) {
           // Visit result type.
           if (Visit(Proto.getReturnLoc()))
             return true;
         }
+#endif
       }
       break;
     }
