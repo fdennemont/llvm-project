@@ -160,10 +160,9 @@ public:
 private:
   _LIBCPP_HIDE_FROM_ABI constexpr _ConstIterator
   __parse_chrono_specs(_ConstIterator __begin, _ConstIterator __end, __flags __flags) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(
-        __begin != __end,
-        "When called with an empty input the function will cause "
-        "undefined behavior by evaluating data not in the input");
+    _LIBCPP_ASSERT_INTERNAL(__begin != __end,
+                            "When called with an empty input the function will cause "
+                            "undefined behavior by evaluating data not in the input");
 
     if (*__begin != _CharT('%') && *__begin != _CharT('}'))
       std::__throw_format_error("The format specifier expects a '%' or a '}'");
@@ -410,7 +409,7 @@ private:
 
 } // namespace __format_spec
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

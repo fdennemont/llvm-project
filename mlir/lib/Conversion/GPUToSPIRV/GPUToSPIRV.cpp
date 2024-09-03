@@ -16,6 +16,7 @@
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVEnums.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVOps.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVTypes.h"
 #include "mlir/Dialect/SPIRV/IR/TargetAndABI.h"
 #include "mlir/Dialect/SPIRV/Transforms/SPIRVConversion.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -87,19 +88,6 @@ public:
   LogicalResult
   matchAndRewrite(gpu::GPUModuleOp moduleOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
-};
-
-class GPUModuleEndConversion final
-    : public OpConversionPattern<gpu::ModuleEndOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(gpu::ModuleEndOp endOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.eraseOp(endOp);
-    return success();
-  }
 };
 
 /// Pattern to convert a gpu.return into a SPIR-V return.
@@ -529,7 +517,7 @@ static std::optional<Value> createGroupReduceOp(OpBuilder &builder,
       {ReduceType::MINSI, ElemType::Integer,
        &createGroupReduceOpImpl<spirv::GroupSMinOp,
                                 spirv::GroupNonUniformSMinOp>},
-      {ReduceType::MINF, ElemType::Float,
+      {ReduceType::MINNUMF, ElemType::Float,
        &createGroupReduceOpImpl<spirv::GroupFMinOp,
                                 spirv::GroupNonUniformFMinOp>},
       {ReduceType::MAXUI, ElemType::Integer,
@@ -538,7 +526,7 @@ static std::optional<Value> createGroupReduceOp(OpBuilder &builder,
       {ReduceType::MAXSI, ElemType::Integer,
        &createGroupReduceOpImpl<spirv::GroupSMaxOp,
                                 spirv::GroupNonUniformSMaxOp>},
-      {ReduceType::MAXF, ElemType::Float,
+      {ReduceType::MAXNUMF, ElemType::Float,
        &createGroupReduceOpImpl<spirv::GroupFMaxOp,
                                 spirv::GroupNonUniformFMaxOp>},
       {ReduceType::MINIMUMF, ElemType::Float,
@@ -591,10 +579,16 @@ public:
   LogicalResult
   matchAndRewrite(gpu::SubgroupReduceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto opType = op.getOp();
-    auto result =
-        createGroupReduceOp(rewriter, op.getLoc(), adaptor.getValue(), opType,
-                            /*isGroup*/ false, op.getUniform());
+    if (op.getClusterSize())
+      return rewriter.notifyMatchFailure(
+          op, "lowering for clustered reduce not implemented");
+
+    if (!isa<spirv::ScalarType>(adaptor.getValue().getType()))
+      return rewriter.notifyMatchFailure(op, "reduction type is not a scalar");
+
+    auto result = createGroupReduceOp(rewriter, op.getLoc(), adaptor.getValue(),
+                                      adaptor.getOp(),
+                                      /*isGroup=*/false, adaptor.getUniform());
     if (!result)
       return failure();
 
@@ -611,7 +605,7 @@ void mlir::populateGPUToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
                                       RewritePatternSet &patterns) {
   patterns.add<
       GPUBarrierConversion, GPUFuncOpConversion, GPUModuleConversion,
-      GPUModuleEndConversion, GPUReturnOpConversion, GPUShuffleConversion,
+      GPUReturnOpConversion, GPUShuffleConversion,
       LaunchConfigConversion<gpu::BlockIdOp, spirv::BuiltIn::WorkgroupId>,
       LaunchConfigConversion<gpu::GridDimOp, spirv::BuiltIn::NumWorkgroups>,
       LaunchConfigConversion<gpu::BlockDimOp, spirv::BuiltIn::WorkgroupSize>,

@@ -32,8 +32,8 @@
 using namespace lldb;
 using namespace lldb_private;
 
-ConstString &ThreadedCommunication::GetStaticBroadcasterClass() {
-  static ConstString class_name("lldb.communication");
+llvm::StringRef ThreadedCommunication::GetStaticBroadcasterClass() {
+  static constexpr llvm::StringLiteral class_name("lldb.communication");
   return class_name;
 }
 
@@ -92,14 +92,14 @@ size_t ThreadedCommunication::Read(void *dst, size_t dst_len,
     }
     if (timeout && timeout->count() == 0) {
       if (error_ptr)
-        error_ptr->SetErrorString("Timed out.");
+        *error_ptr = Status::FromErrorString("Timed out.");
       status = eConnectionStatusTimedOut;
       return 0;
     }
 
     if (!m_connection_sp) {
       if (error_ptr)
-        error_ptr->SetErrorString("Invalid connection.");
+        *error_ptr = Status::FromErrorString("Invalid connection.");
       status = eConnectionStatusNoConnection;
       return 0;
     }
@@ -126,7 +126,7 @@ size_t ThreadedCommunication::Read(void *dst, size_t dst_len,
     } else {
       if (!listener_sp->GetEvent(event_sp, timeout)) {
         if (error_ptr)
-          error_ptr->SetErrorString("Timed out.");
+          *error_ptr = Status::FromErrorString("Timed out.");
         status = eConnectionStatusTimedOut;
         return 0;
       }

@@ -137,18 +137,21 @@ struct CaseBlock {
   SDLoc DL;
   DebugLoc DbgLoc;
 
-  // Branch weights.
+  // Branch weights and predictability.
   BranchProbability TrueProb, FalseProb;
+  bool IsUnpredictable;
 
   // Constructor for SelectionDAG.
   CaseBlock(ISD::CondCode cc, const Value *cmplhs, const Value *cmprhs,
             const Value *cmpmiddle, MachineBasicBlock *truebb,
             MachineBasicBlock *falsebb, MachineBasicBlock *me, SDLoc dl,
             BranchProbability trueprob = BranchProbability::getUnknown(),
-            BranchProbability falseprob = BranchProbability::getUnknown())
+            BranchProbability falseprob = BranchProbability::getUnknown(),
+            bool isunpredictable = false)
       : CC(cc), CmpLHS(cmplhs), CmpMHS(cmpmiddle), CmpRHS(cmprhs),
         TrueBB(truebb), FalseBB(falsebb), ThisBB(me), DL(dl),
-        TrueProb(trueprob), FalseProb(falseprob) {}
+        TrueProb(trueprob), FalseProb(falseprob),
+        IsUnpredictable(isunpredictable) {}
 
   // Constructor for GISel.
   CaseBlock(CmpInst::Predicate pred, bool nocmp, const Value *cmplhs,
@@ -156,10 +159,12 @@ struct CaseBlock {
             MachineBasicBlock *truebb, MachineBasicBlock *falsebb,
             MachineBasicBlock *me, DebugLoc dl,
             BranchProbability trueprob = BranchProbability::getUnknown(),
-            BranchProbability falseprob = BranchProbability::getUnknown())
+            BranchProbability falseprob = BranchProbability::getUnknown(),
+            bool isunpredictable = false)
       : PredInfo({pred, nocmp}), CmpLHS(cmplhs), CmpMHS(cmpmiddle),
         CmpRHS(cmprhs), TrueBB(truebb), FalseBB(falsebb), ThisBB(me),
-        DbgLoc(dl), TrueProb(trueprob), FalseProb(falseprob) {}
+        DbgLoc(dl), TrueProb(trueprob), FalseProb(falseprob),
+        IsUnpredictable(isunpredictable) {}
 };
 
 struct JumpTable {
@@ -293,6 +298,22 @@ public:
       MachineBasicBlock *Src, MachineBasicBlock *Dst,
       BranchProbability Prob = BranchProbability::getUnknown()) = 0;
 
+  /// Determine the rank by weight of CC in [First,Last]. If CC has more weight
+  /// than each cluster in the range, its rank is 0.
+  unsigned caseClusterRank(const CaseCluster &CC, CaseClusterIt First,
+                           CaseClusterIt Last);
+
+  struct SplitWorkItemInfo {
+    CaseClusterIt LastLeft;
+    CaseClusterIt FirstRight;
+    BranchProbability LeftProb;
+    BranchProbability RightProb;
+  };
+  /// Compute information to balance the tree based on branch probabilities to
+  /// create a near-optimal (in terms of search time given key frequency) binary
+  /// search tree. See e.g. Kurt Mehlhorn "Nearly Optimal Binary Search Trees"
+  /// (1975).
+  SplitWorkItemInfo computeSplitWorkItemInfo(const SwitchWorkListItem &W);
   virtual ~SwitchLowering() = default;
 
 private:

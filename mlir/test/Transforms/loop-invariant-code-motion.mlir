@@ -374,7 +374,7 @@ func.func @parallel_loop_with_invariant() {
   // CHECK-NEXT: arith.addi
   // CHECK-NEXT: scf.parallel (%[[A:.*]],{{.*}}) =
   // CHECK-NEXT:   arith.addi %[[A]]
-  // CHECK-NEXT:   yield
+  // CHECK-NEXT:   reduce
   // CHECK-NEXT: }
   // CHECK-NEXT: return
 
@@ -918,6 +918,120 @@ func.func @speculate_ceildivsi_const(
 // CHECK: arith.ceildivsi
 // CHECK: scf.for
     %val = arith.ceildivsi %num, %c5 : i32
+  }
+
+  return
+}
+
+func.func @no_speculate_divui_range(
+// CHECK-LABEL: @no_speculate_divui_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom = test.with_bounds {smax = 127 : i8, smin = -128 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK: scf.for
+// CHECK: arith.divui
+    %val = arith.divui %num, %denom : i8
+  }
+
+  return
+}
+
+func.func @no_speculate_divsi_range(
+// CHECK-LABEL: @no_speculate_divsi_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom0 = test.with_bounds {smax = -1: i8, smin = -128 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  %denom1 = test.with_bounds {smax = 127 : i8, smin = 0 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK: scf.for
+// CHECK-COUNT-2: arith.divsi
+    %val0 = arith.divsi %num, %denom0 : i8
+    %val1 = arith.divsi %num, %denom1 : i8
+  }
+
+  return
+}
+
+func.func @no_speculate_ceildivui_range(
+// CHECK-LABEL: @no_speculate_ceildivui_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom = test.with_bounds {smax = 127 : i8, smin = -128 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK: scf.for
+// CHECK: arith.ceildivui
+    %val = arith.ceildivui %num, %denom : i8
+  }
+
+  return
+}
+
+func.func @no_speculate_ceildivsi_range(
+// CHECK-LABEL: @no_speculate_ceildivsi_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom0 = test.with_bounds {smax = -1 : i8, smin = -128 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  %denom1 = test.with_bounds {smax = 127 : i8, smin = 0 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK: scf.for
+// CHECK-COUNT-2: arith.ceildivsi
+    %val0 = arith.ceildivsi %num, %denom0 : i8
+    %val1 = arith.ceildivsi %num, %denom1 : i8
+  }
+
+  return
+}
+
+func.func @speculate_divui_range(
+// CHECK-LABEL: @speculate_divui_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom = test.with_bounds {smax = 127 : i8, smin = -128 : i8, umax = 255 : i8, umin = 1 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK: arith.divui
+// CHECK: scf.for
+    %val = arith.divui %num, %denom : i8
+  }
+
+  return
+}
+
+func.func @speculate_divsi_range(
+// CHECK-LABEL: @speculate_divsi_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom0 = test.with_bounds {smax = 127 : i8, smin = 1 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  %denom1 = test.with_bounds {smax = -2 : i8, smin = -128 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK-COUNT-2: arith.divsi
+// CHECK: scf.for
+    %val0 = arith.divsi %num, %denom0 : i8
+    %val1 = arith.divsi %num, %denom1 : i8
+
+  }
+
+  return
+}
+
+func.func @speculate_ceildivui_range(
+// CHECK-LABEL: @speculate_ceildivui_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom = test.with_bounds {smax = 127 : i8, smin = -128 : i8, umax = 255 : i8, umin = 1 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK: arith.ceildivui
+// CHECK: scf.for
+    %val = arith.ceildivui %num, %denom : i8
+  }
+
+  return
+}
+
+func.func @speculate_ceildivsi_range(
+// CHECK-LABEL: @speculate_ceildivsi_range(
+    %num: i8, %lb: index, %ub: index, %step: index) {
+  %denom0 = test.with_bounds {smax = 127 : i8, smin = 1 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  %denom1 = test.with_bounds {smax = -2 : i8, smin = -128 : i8, umax = 255 : i8, umin = 0 : i8} : i8
+  scf.for %i = %lb to %ub step %step {
+// CHECK-COUNT-2: arith.ceildivsi
+// CHECK: scf.for
+    %val0 = arith.ceildivsi %num, %denom0 : i8
+    %val1 = arith.ceildivsi %num, %denom1 : i8
+
   }
 
   return

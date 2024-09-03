@@ -17,10 +17,10 @@
 #include "mlir/Dialect/SCF/Utils/Utils.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Support/MathExtras.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 
 #define DEBUG_TYPE "scf-loop-pipelining"
 #define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE "]: ")
@@ -66,6 +66,10 @@ protected:
   /// the loop return the associated defining op in the loop and its distance to
   /// the Value.
   std::pair<Operation *, int64_t> getDefiningOpAndDistance(Value value);
+
+  /// Return true if the schedule is possible and return false otherwise. A
+  /// schedule is correct if all definitions are scheduled before uses.
+  bool verifySchedule();
 
 public:
   /// Initalize the information for the given `op`, return true if it
@@ -115,7 +119,7 @@ bool LoopPipelinerInternal::initializeLoopInfo(
     int64_t ubImm = upperBoundCst.value();
     int64_t lbImm = lowerBoundCst.value();
     int64_t stepImm = stepCst.value();
-    int64_t numIteration = ceilDiv(ubImm - lbImm, stepImm);
+    int64_t numIteration = llvm::divideCeilSigned(ubImm - lbImm, stepImm);
     if (numIteration > maxStage) {
       dynamicLoop = false;
     } else if (!options.supportDynamicLoops) {
@@ -156,6 +160,11 @@ bool LoopPipelinerInternal::initializeLoopInfo(
     }
   }
 
+  if (!verifySchedule()) {
+    LDBG("--invalid schedule: " << op << " -> BAIL");
+    return false;
+  }
+
   // Currently, we do not support assigning stages to ops in nested regions. The
   // block of all operations assigned a stage should be the single `scf.for`
   // body block.
@@ -194,6 +203,51 @@ bool LoopPipelinerInternal::initializeLoopInfo(
   return true;
 }
 
+/// Find operands of all the nested operations within `op`.
+static SetVector<Value> getNestedOperands(Operation *op) {
+  SetVector<Value> operands;
+  op->walk([&](Operation *nestedOp) {
+    for (Value operand : nestedOp->getOperands()) {
+      operands.insert(operand);
+    }
+  });
+  return operands;
+}
+
+/// Compute unrolled cycles of each op (consumer) and verify that each op is
+/// scheduled after its operands (producers) while adjusting for the distance
+/// between producer and consumer.
+bool LoopPipelinerInternal::verifySchedule() {
+  int64_t numCylesPerIter = opOrder.size();
+  // Pre-compute the unrolled cycle of each op.
+  DenseMap<Operation *, int64_t> unrolledCyles;
+  for (int64_t cycle = 0; cycle < numCylesPerIter; cycle++) {
+    Operation *def = opOrder[cycle];
+    auto it = stages.find(def);
+    assert(it != stages.end());
+    int64_t stage = it->second;
+    unrolledCyles[def] = cycle + stage * numCylesPerIter;
+  }
+  for (Operation *consumer : opOrder) {
+    int64_t consumerCycle = unrolledCyles[consumer];
+    for (Value operand : getNestedOperands(consumer)) {
+      auto [producer, distance] = getDefiningOpAndDistance(operand);
+      if (!producer)
+        continue;
+      auto it = unrolledCyles.find(producer);
+      // Skip producer coming from outside the loop.
+      if (it == unrolledCyles.end())
+        continue;
+      int64_t producerCycle = it->second;
+      if (consumerCycle < producerCycle - numCylesPerIter * distance) {
+        consumer->emitError("operation scheduled before its operands");
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 /// Clone `op` and call `callback` on the cloned op's oeprands as well as any
 /// operands of nested ops that:
 /// 1) aren't defined within the new op or
@@ -202,9 +256,8 @@ static Operation *
 cloneAndUpdateOperands(RewriterBase &rewriter, Operation *op,
                        function_ref<void(OpOperand *newOperand)> callback) {
   Operation *clone = rewriter.clone(*op);
-  for (OpOperand &operand : clone->getOpOperands())
-    callback(&operand);
-  clone->walk([&](Operation *nested) {
+  clone->walk<WalkOrder::PreOrder>([&](Operation *nested) {
+    // 'clone' itself will be visited first.
     for (OpOperand &operand : nested->getOpOperands()) {
       Operation *def = operand.get().getDefiningOp();
       if ((def && !clone->isAncestor(def)) || isa<BlockArgument>(operand.get()))
@@ -215,7 +268,7 @@ cloneAndUpdateOperands(RewriterBase &rewriter, Operation *op,
 }
 
 void LoopPipelinerInternal::emitPrologue(RewriterBase &rewriter) {
-  // Initialize the iteration argument to the loop initiale values.
+  // Initialize the iteration argument to the loop initial values.
   for (auto [arg, operand] :
        llvm::zip(forOp.getRegionIterArgs(), forOp.getInitsMutable())) {
     setValueMapping(arg, operand.get(), 0);
@@ -267,16 +320,26 @@ void LoopPipelinerInternal::emitPrologue(RewriterBase &rewriter) {
       if (annotateFn)
         annotateFn(newOp, PipeliningOption::PipelinerPart::Prologue, i);
       for (unsigned destId : llvm::seq(unsigned(0), op->getNumResults())) {
-        setValueMapping(op->getResult(destId), newOp->getResult(destId),
-                        i - stages[op]);
+        Value source = newOp->getResult(destId);
         // If the value is a loop carried dependency update the loop argument
-        // mapping.
         for (OpOperand &operand : yield->getOpOperands()) {
           if (operand.get() != op->getResult(destId))
             continue;
+          if (predicates[predicateIdx] &&
+              !forOp.getResult(operand.getOperandNumber()).use_empty()) {
+            // If the value is used outside the loop, we need to make sure we
+            // return the correct version of it.
+            Value prevValue = valueMapping
+                [forOp.getRegionIterArgs()[operand.getOperandNumber()]]
+                [i - stages[op]];
+            source = rewriter.create<arith::SelectOp>(
+                loc, predicates[predicateIdx], source, prevValue);
+          }
           setValueMapping(forOp.getRegionIterArgs()[operand.getOperandNumber()],
-                          newOp->getResult(destId), i - stages[op] + 1);
+                          source, i - stages[op] + 1);
         }
+        setValueMapping(op->getResult(destId), newOp->getResult(destId),
+                        i - stages[op]);
       }
     }
   }
