@@ -24,7 +24,7 @@
 #include "clang-c/CXString.h"
 #include "clang-c/ExternC.h"
 #include "clang-c/Platform.h"
-#include "../../tools/libclang/SPR_Profiler.h"
+#include "../../tools/libclang/SPR_Callbacks.h"
 
 /**
  * The version constants for the libclang API.
@@ -582,7 +582,7 @@ CINDEX_LINKAGE CXDiagnostic clang_getDiagnostic(CXTranslationUnit Unit,
 #if 1 ///-- HOIBY WAS HERE
 CINDEX_LINKAGE unsigned clang_getDiagnosticId(CXDiagnostic);
 
-CINDEX_LINKAGE void clang_InitProfilerCallbacks(GPTHREADPROTECTION_ENABLE ThreadProtection_Enable, GPTHREADPROTECTION_DISABLE ThreadProtection_Disable, GSCOPE_CTX_T_ONENTER SCOPE_CTX_t_OnEnter, GSCOPE_CTX_T_ONLEAVE SCOPE_CTX_t_OnLeave, SRCLOC_INIT SRCLOC_Init);
+CINDEX_LINKAGE void clang_InitProfilerCallbacks(GPTHREADPROTECTION_ENABLE ThreadProtection_Enable, GPTHREADPROTECTION_DISABLE ThreadProtection_Disable, GSCOPE_CTX_T_ONENTER SCOPE_CTX_t_OnEnter, GSCOPE_CTX_T_ONLEAVE SCOPE_CTX_t_OnLeave, SRCLOC_INIT SRCLOC_Init, ALLOCATE Allocate, FREE Free);
 #endif
 
 /**

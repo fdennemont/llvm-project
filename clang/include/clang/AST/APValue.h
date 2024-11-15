@@ -272,7 +272,7 @@ private:
     Vec() = default;
     Vec(const Vec &) = delete;
     Vec &operator=(const Vec &) = delete;
-    ~Vec() { delete[] Elts; }
+    ~Vec();
   };
   struct Arr {
     APValue *Elts;
@@ -372,10 +372,20 @@ public:
   APValue &operator=(const APValue &RHS);
   APValue &operator=(APValue &&RHS);
 
-  ~APValue() {
-    if (Kind != None && Kind != Indeterminate)
-      DestroyDataAndMakeUninit();
+  ~APValue();
+
+#if 1
+  static void* operator new(std::size_t size);
+  static void operator delete(void* ptr);
+  static void* operator new[](std::size_t size);
+  static void operator delete[](void* ptr);
+  static void* operator new(std::size_t count, void* ptr) {
+    return ptr;
   }
+  static void* operator new(std::size_t count, std::align_val_t al, void* ptr) {
+    return ptr;
+  }
+#endif
 
   /// Returns whether the object performed allocations.
   ///
@@ -669,7 +679,7 @@ private:
   }
   void MakeUnion() {
     assert(isAbsent() && "Bad state change");
-    new ((void *)(char *)&Data) UnionData();
+    ::new ((void *)(char *)&Data) UnionData();
     Kind = Union;
   }
   void MakeMemberPointer(const ValueDecl *Member, bool IsDerivedMember,
@@ -684,13 +694,7 @@ private:
   /// The following functions are used as part of initialization, during
   /// deserialization and importing. Reserve the space so that it can be
   /// filled in by those steps.
-  MutableArrayRef<APValue> setVectorUninit(unsigned N) {
-    assert(isVector() && "Invalid accessor");
-    Vec *V = ((Vec *)(char *)&Data);
-    V->Elts = new APValue[N];
-    V->NumElts = N;
-    return {V->Elts, V->NumElts};
-  }
+  MutableArrayRef<APValue> setVectorUninit(unsigned N);
   MutableArrayRef<LValuePathEntry>
   setLValueUninit(LValueBase B, const CharUnits &O, unsigned Size,
                   bool OnePastTheEnd, bool IsNullPtr);

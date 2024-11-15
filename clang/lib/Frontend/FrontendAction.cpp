@@ -43,6 +43,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <memory>
 #include <system_error>
+#include "../../tools/libclang/SPR_Profiler.h"
 using namespace clang;
 
 LLVM_INSTANTIATE_REGISTRY(FrontendPluginRegistry)
@@ -1069,6 +1070,7 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
 }
 
 llvm::Error FrontendAction::Execute() {
+	PROFILER_WATCH_CTX(Ctx, "FrontendAction::Execute");
   CompilerInstance &CI = getCompilerInstance();
 
   if (CI.hasFrontendTimer()) {
@@ -1167,6 +1169,7 @@ bool FrontendAction::shouldEraseOutputFiles() {
 //===----------------------------------------------------------------------===//
 
 void ASTFrontendAction::ExecuteAction() {
+	PROFILER_WATCH_CTX(Ctx, "ASTFrontendAction::ExecuteAction");
   CompilerInstance &CI = getCompilerInstance();
   if (!CI.hasPreprocessor())
     return;

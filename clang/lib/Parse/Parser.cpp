@@ -24,6 +24,7 @@
 #include "clang/Sema/SemaCodeCompletion.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/TimeProfiler.h"
+#include "../../tools/libclang/SPR_Profiler.h"
 using namespace clang;
 
 
@@ -423,6 +424,7 @@ void Parser::EnterScope(unsigned ScopeFlags) {
     N->Init(getCurScope(), ScopeFlags);
     Actions.CurScope = N;
   } else {
+		PROFILER_WATCH_CTX(CTX_NewScope, "new Scope");
     Actions.CurScope = new Scope(getCurScope(), ScopeFlags, Diags);
   }
 }
@@ -600,6 +602,7 @@ void Parser::DestroyTemplateIds() {
 /// Note that in C, it is an error if there is no first declaration.
 bool Parser::ParseFirstTopLevelDecl(DeclGroupPtrTy &Result,
                                     Sema::ModuleImportState &ImportState) {
+	PROFILER_WATCH_CTX(CTX_ParseTopLevel, "ParseFirstTopLevelDecl");
   Actions.ActOnStartOfTranslationUnit();
 
   // For C++20 modules, a module decl must be the first in the TU.  We also
@@ -627,6 +630,7 @@ bool Parser::ParseFirstTopLevelDecl(DeclGroupPtrTy &Result,
 /// [C++20]   module-import-declaration
 bool Parser::ParseTopLevelDecl(DeclGroupPtrTy &Result,
                                Sema::ModuleImportState &ImportState) {
+	PROFILER_WATCH_CTX(CTX_ParseTopLevel, "ParseTopLevelDecl");
   DestroyTemplateIdAnnotationsRAIIObj CleanupRAII(*this);
 
   // Skip over the EOF token, flagging end of previous input for incremental

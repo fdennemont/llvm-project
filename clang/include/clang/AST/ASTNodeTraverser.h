@@ -292,7 +292,7 @@ public:
   }
 
   void Visit(const APValue &Value, QualType Ty) {
-    getNodeDelegate().AddChild([=] { getNodeDelegate().Visit(Value, Ty); });
+    getNodeDelegate().AddChild([&] { getNodeDelegate().Visit(Value, Ty); });
   }
 
   void Visit(const comments::Comment *C, const comments::FullComment *FC) {

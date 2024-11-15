@@ -20,6 +20,8 @@
 #include "clang/AST/Type.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "../../tools/libclang/SPR_Profiler.h"
+#include "clang/AST/SprAllocator.h"
 using namespace clang;
 
 /// The identity of a type_info object depends on the canonical unqualified
@@ -132,8 +134,7 @@ void APValue::LValueBase::Profile(llvm::FoldingSetNodeID &ID) const {
   ID.AddInteger(Local.Version);
 }
 
-namespace clang {
-bool operator==(const APValue::LValueBase &LHS,
+bool clang::operator==(const APValue::LValueBase &LHS,
                 const APValue::LValueBase &RHS) {
   if (LHS.Ptr != RHS.Ptr)
     return false;
@@ -142,6 +143,20 @@ bool operator==(const APValue::LValueBase &LHS,
   return LHS.Local.CallIndex == RHS.Local.CallIndex &&
          LHS.Local.Version == RHS.Local.Version;
 }
+
+clang::APValue::~APValue() {
+	PROFILER_WATCH_ON("~APValue");
+	if (Kind != None && Kind != Indeterminate)
+		DestroyDataAndMakeUninit();
+	PROFILER_WATCH_OFF();
+}
+
+clang::MutableArrayRef<clang::APValue> clang::APValue::setVectorUninit(unsigned N) {
+	assert(isVector() && "Invalid accessor");
+	Vec *V = ((Vec *)(char *)&Data);
+	V->Elts = new APValue[N];
+	V->NumElts = N;
+	return {V->Elts, V->NumElts};
 }
 
 APValue::LValuePathEntry::LValuePathEntry(BaseOrMemberType BaseOrMember) {
@@ -289,6 +304,10 @@ struct APValue::MemberPointerData : MemberPointerBase {
   }
 };
 
+APValue::Vec::~Vec() {
+	delete[] Elts;
+}
+
 // FIXME: Reduce the malloc traffic here.
 
 APValue::Arr::Arr(unsigned NumElts, unsigned Size) :
@@ -401,30 +420,43 @@ APValue &APValue::operator=(APValue &&RHS) {
 }
 
 void APValue::DestroyDataAndMakeUninit() {
-  if (Kind == Int)
+  if (Kind == Int) {
+		PROFILER_WATCH_CTX(Ctx, "~APSInt");
     ((APSInt *)(char *)&Data)->~APSInt();
-  else if (Kind == Float)
+  } else if (Kind == Float) {
+		PROFILER_WATCH_CTX(Ctx, "~APFloat");
     ((APFloat *)(char *)&Data)->~APFloat();
-  else if (Kind == FixedPoint)
+	} else if (Kind == FixedPoint) {
+		PROFILER_WATCH_CTX(Ctx, "~APFixedPoint");
     ((APFixedPoint *)(char *)&Data)->~APFixedPoint();
-  else if (Kind == Vector)
+	} else if (Kind == Vector) {
+		PROFILER_WATCH_CTX(Ctx, "~Vec");
     ((Vec *)(char *)&Data)->~Vec();
-  else if (Kind == ComplexInt)
+	} else if (Kind == ComplexInt) {
+		PROFILER_WATCH_CTX(Ctx, "~ComplexAPSInt");
     ((ComplexAPSInt *)(char *)&Data)->~ComplexAPSInt();
-  else if (Kind == ComplexFloat)
+	} else if (Kind == ComplexFloat) {
+		PROFILER_WATCH_CTX(Ctx, "~ComplexAPFloat");
     ((ComplexAPFloat *)(char *)&Data)->~ComplexAPFloat();
-  else if (Kind == LValue)
+	} else if (Kind == LValue) {
+		PROFILER_WATCH_CTX(Ctx, "~LV");
     ((LV *)(char *)&Data)->~LV();
-  else if (Kind == Array)
+	} else if (Kind == Array) {
+		PROFILER_WATCH_CTX(Ctx, "~Arr");
     ((Arr *)(char *)&Data)->~Arr();
-  else if (Kind == Struct)
+	} else if (Kind == Struct) {
+		PROFILER_WATCH_CTX(Ctx, "~StructData");
     ((StructData *)(char *)&Data)->~StructData();
-  else if (Kind == Union)
+	} else if (Kind == Union) {
+		PROFILER_WATCH_CTX(Ctx, "~UnionData");
     ((UnionData *)(char *)&Data)->~UnionData();
-  else if (Kind == MemberPointer)
+	} else if (Kind == MemberPointer) {
+		PROFILER_WATCH_CTX(Ctx, "~MemberPointerData");
     ((MemberPointerData *)(char *)&Data)->~MemberPointerData();
-  else if (Kind == AddrLabelDiff)
+	} else if (Kind == AddrLabelDiff) {
+		PROFILER_WATCH_CTX(Ctx, "~AddrLabelDiffData");
     ((AddrLabelDiffData *)(char *)&Data)->~AddrLabelDiffData();
+	}
   Kind = None;
 }
 

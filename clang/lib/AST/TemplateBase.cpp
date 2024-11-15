@@ -202,7 +202,7 @@ void TemplateArgument::initFromStructural(const ASTContext &Ctx, QualType Type,
                                           const APValue &V, bool IsDefaulted) {
   Value.Kind = StructuralValue;
   Value.IsDefaulted = IsDefaulted;
-  Value.Value = new (Ctx) APValue(V);
+  Value.Value = ::new (Ctx) APValue(V);
   Ctx.addDestruction(Value.Value);
   Value.Type = Type.getAsOpaquePtr();
 }

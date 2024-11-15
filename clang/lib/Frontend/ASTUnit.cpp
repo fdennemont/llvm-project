@@ -101,6 +101,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include "../../tools/libclang/SPR_Profiler.h"
 
 using namespace clang;
 
@@ -224,6 +225,7 @@ struct ASTUnit::ASTWriterData {
 };
 
 void ASTUnit::clearFileLevelDecls() {
+	PROFILER_WATCH("ASTUnit::clearFileLevelDecls");
   FileDecls.clear();
 }
 
@@ -1116,6 +1118,7 @@ static void
 checkAndRemoveNonDriverDiags(SmallVectorImpl<StoredDiagnostic> &StoredDiags) {
   // Get rid of stored diagnostics except the ones from the driver which do not
   // have a source location.
+	PROFILER_WATCH("checkAndRemoveNonDriverDiags");
   llvm::erase_if(StoredDiags, isNonDriverDiag);
 }
 
@@ -1146,6 +1149,8 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
   if (!Invocation)
     return true;
 
+	PROFILER_WATCH_ON("ASTUnit::Parse");
+	PROFILER_WATCH_ON_CTX(CTX_PART1, "Part1");
   if (VFS && FileMgr)
     assert(VFS == &FileMgr->getVirtualFileSystem() &&
            "VFS passed to Parse and VFS in FileMgr are different");
@@ -1157,11 +1162,14 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     Preamble->AddImplicitPreamble(*CCInvocation, VFS, OverrideMainBuffer.get());
     // VFS may have changed...
   }
+	PROFILER_WATCH_OFF_CTX(CTX_PART1);
 
+ PROFILER_WATCH_ON_CTX(CTX_PART2, "Part2");
   // Create the compiler instance to use for building the AST.
   std::unique_ptr<CompilerInstance> Clang(
       new CompilerInstance(std::move(PCHContainerOps)));
   Clang->setInvocation(CCInvocation);
+	PROFILER_WATCH_OFF_CTX(CTX_PART2);
 
   // Clean up on error, disengage it if the function returns successfully.
   auto CleanOnError = llvm::make_scope_exit([&]() {
@@ -1176,6 +1184,7 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     NumStoredDiagnosticsFromDriver = 0;
   });
 
+	PROFILER_WATCH_ON_CTX(CTX_PART3, "Part3");
   // Ensure that Clang has a FileManager with the right VFS, which may have
   // changed above in AddImplicitPreamble.  If VFS is nullptr, rely on
   // createFileManager to create one.
@@ -1183,7 +1192,9 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     Clang->setFileManager(&*FileMgr);
   else
     FileMgr = Clang->createFileManager(std::move(VFS));
+	PROFILER_WATCH_OFF_CTX(CTX_PART3);
 
+  PROFILER_WATCH_ON_CTX(CTX_PART4, "Part4");
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<CompilerInstance>
     CICleanup(Clang.get());
@@ -1194,10 +1205,16 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
   // Set up diagnostics, capturing any diagnostics that would
   // otherwise be dropped.
   Clang->setDiagnostics(&getDiagnostics());
+	PROFILER_WATCH_OFF_CTX(CTX_PART4);
 
+	PROFILER_WATCH_ON_CTX(CTX_PART5, "Part5");
   // Create the target instance.
-  if (!Clang->createTarget())
+  if (!Clang->createTarget()) {
+    PROFILER_WATCH_OFF_CTX(CTX_PART5);
+    PROFILER_WATCH_OFF();
     return true;
+  }
+  PROFILER_WATCH_OFF_CTX(CTX_PART5);
 
   assert(Clang->getFrontendOpts().Inputs.size() == 1 &&
          "Invocation must have exactly one source file!");
@@ -1212,14 +1229,24 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
   LangOpts = Clang->getInvocation().LangOpts;
   FileSystemOpts = Clang->getFileSystemOpts();
 
+	PROFILER_WATCH_ON_CTX(CTX_PART6, "Part6");
   ResetForParse();
+	PROFILER_WATCH_OFF_CTX(CTX_PART6);
 
+  PROFILER_WATCH_ON_CTX(CTX_PART7, "Part7");
   SourceMgr = new SourceManager(getDiagnostics(), *FileMgr,
                                 UserFilesAreVolatile);
+	PROFILER_WATCH_OFF_CTX(CTX_PART7);
+  PROFILER_WATCH_ON_CTX(CTX_PART8, "Part8");
   if (!OverrideMainBuffer) {
     checkAndRemoveNonDriverDiags(StoredDiagnostics);
+		PROFILER_WATCH_ON_CTX(CTX_PART8b, "Part8b");
     TopLevelDeclsInPreamble.clear();
+		PROFILER_WATCH_OFF_CTX(CTX_PART8b);
   }
+	PROFILER_WATCH_OFF_CTX(CTX_PART8);
+
+  PROFILER_WATCH_ON_CTX(CTX_PART9, "Part9");
 
   // Create the source manager.
   Clang->setSourceManager(&getSourceManager());
@@ -1237,25 +1264,36 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
     // Keep track of the override buffer;
     SavedMainFileBuffer = std::move(OverrideMainBuffer);
   }
+	PROFILER_WATCH_OFF_CTX(CTX_PART9);
 
+	PROFILER_WATCH_ON_CTX(CTX_PART10, "Part10");
   std::unique_ptr<TopLevelDeclTrackerAction> Act(
       new TopLevelDeclTrackerAction(*this));
+	PROFILER_WATCH_OFF_CTX(CTX_PART10);
 
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<TopLevelDeclTrackerAction>
     ActCleanup(Act.get());
 
-  if (!Act->BeginSourceFile(*Clang.get(), Clang->getFrontendOpts().Inputs[0]))
+	PROFILER_WATCH_ON_CTX(CTX_PART11, "Part11");
+  if (!Act->BeginSourceFile(*Clang.get(), Clang->getFrontendOpts().Inputs[0])) {
+		PROFILER_WATCH_OFF_CTX(CTX_PART11);
+    PROFILER_WATCH_OFF();
     return true;
+	}
+	PROFILER_WATCH_OFF_CTX(CTX_PART11);
 
+  PROFILER_WATCH_ON_CTX(CTX_PART12, "Part12");
   if (SavedMainFileBuffer)
     TranslateStoredDiagnostics(getFileManager(), getSourceManager(),
                                PreambleDiagnostics, StoredDiagnostics);
   else
     PreambleSrcLocCache.clear();
+	PROFILER_WATCH_OFF_CTX(CTX_PART12);
 
   if (llvm::Error Err = Act->Execute()) {
     consumeError(std::move(Err)); // FIXME this drops errors on the floor.
+		PROFILER_WATCH_OFF();
     return true;
   }
 
@@ -1267,6 +1305,7 @@ bool ASTUnit::Parse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
 
   CleanOnError.release();
 
+	PROFILER_WATCH_OFF();
   return false;
 }
 
@@ -1891,9 +1930,11 @@ bool ASTUnit::Reparse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
   // If we have a preamble file lying around, or if we might try to
   // build a precompiled preamble, do so now.
   std::unique_ptr<llvm::MemoryBuffer> OverrideMainBuffer;
-  if (Preamble || PreambleRebuildCountdown > 0)
+  if (Preamble || PreambleRebuildCountdown > 0) {
+		PROFILER_WATCH("getMainBufferWithPrecompiledPreamble");
     OverrideMainBuffer =
         getMainBufferWithPrecompiledPreamble(PCHContainerOps, *Invocation, VFS);
+	}
 
   // Clear out the diagnostics state.
   FileMgr.reset();
@@ -1920,15 +1961,35 @@ bool ASTUnit::Reparse(std::shared_ptr<PCHContainerOperations> PCHContainerOps,
 }
 
 void ASTUnit::ResetForParse() {
-  SavedMainFileBuffer.reset();
+  {
+    PROFILER_WATCH("Part6a");
+    SavedMainFileBuffer.reset();
+  }
+  {
+    PROFILER_WATCH("Part6b");
+    SourceMgr.reset();
+  }
+  {
+    PROFILER_WATCH("Part6c");
+    TheSema.reset();
+  }
+  {
+    PROFILER_WATCH("Part6d");
+    Ctx.reset();
+  }
+  {
+    PROFILER_WATCH("Part6e");
+    PP.reset();
+  }
+  {
+    PROFILER_WATCH("Part6f");
+    Reader.reset();
+  }
+	{
+		PROFILER_WATCH("Part6g");
+		TopLevelDecls.clear();
+	}
 
-  SourceMgr.reset();
-  TheSema.reset();
-  Ctx.reset();
-  PP.reset();
-  Reader.reset();
-
-  TopLevelDecls.clear();
   clearFileLevelDecls();
 }
 

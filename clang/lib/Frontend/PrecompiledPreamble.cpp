@@ -35,6 +35,7 @@
 #include <limits>
 #include <mutex>
 #include <utility>
+#include "../../tools/libclang/SPR_Profiler.h"
 
 using namespace clang;
 
@@ -713,6 +714,7 @@ bool PrecompiledPreamble::CanReuse(const CompilerInvocation &Invocation,
 void PrecompiledPreamble::AddImplicitPreamble(
     CompilerInvocation &CI, IntrusiveRefCntPtr<llvm::vfs::FileSystem> &VFS,
     llvm::MemoryBuffer *MainFileBuffer) const {
+	PROFILER_WATCH_CTX(Ctx, "PrecompiledPreamble::AddImplicitPreamble");
   PreambleBounds Bounds(PreambleBytes.size(), PreambleEndsAtStartOfLine);
   configurePreamble(Bounds, CI, VFS, MainFileBuffer);
 }

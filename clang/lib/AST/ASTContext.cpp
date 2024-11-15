@@ -101,6 +101,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include "../../tools/libclang/SPR_Profiler.h"
 
 using namespace clang;
 
@@ -896,15 +897,24 @@ ASTContext::ASTContext(LangOptions &LOpts, SourceManager &SM,
 }
 
 void ASTContext::cleanup() {
+  PROFILER_WATCH_ON("ASTContext::cleanup");
+  PROFILER_WATCH_ON_CTX(CTX_1, "c1");
   // Release the DenseMaps associated with DeclContext objects.
   // FIXME: Is this the ideal solution?
   ReleaseDeclContextMaps();
+	PROFILER_WATCH_OFF_CTX(CTX_1);
 
+	PROFILER_WATCH_ON_CTX(CTX_2, "Deallocations loop");
   // Call all of the deallocation functions on all of their targets.
-  for (auto &Pair : Deallocations)
+  for (auto &Pair : Deallocations) {
+		PROFILER_WATCH_ON_CTX(CTX_Dealloc, "Deallocation");
     (Pair.first)(Pair.second);
+		PROFILER_WATCH_OFF_CTX(CTX_Dealloc);
+	}
   Deallocations.clear();
+	PROFILER_WATCH_OFF_CTX(CTX_2);
 
+	PROFILER_WATCH_ON_CTX(CTX_3, "c3");
   // ASTRecordLayout objects in ASTRecordLayouts must always be destroyed
   // because they can contain DenseMaps.
   for (llvm::DenseMap<const ObjCContainerDecl*,
@@ -913,25 +923,42 @@ void ASTContext::cleanup() {
     // Increment in loop to prevent using deallocated memory.
     if (auto *R = const_cast<ASTRecordLayout *>((I++)->second))
       R->Destroy(*this);
+	PROFILER_WATCH_OFF_CTX(CTX_3);
+  PROFILER_WATCH_ON_CTX(CTX_4, "c4");
   ObjCLayouts.clear();
+	PROFILER_WATCH_OFF_CTX(CTX_4);
 
+	PROFILER_WATCH_ON_CTX(CTX_5, "c5");
   for (llvm::DenseMap<const RecordDecl*, const ASTRecordLayout*>::iterator
        I = ASTRecordLayouts.begin(), E = ASTRecordLayouts.end(); I != E; ) {
     // Increment in loop to prevent using deallocated memory.
     if (auto *R = const_cast<ASTRecordLayout *>((I++)->second))
       R->Destroy(*this);
   }
+	PROFILER_WATCH_OFF_CTX(CTX_5);
+  PROFILER_WATCH_ON_CTX(CTX_6, "c6");
   ASTRecordLayouts.clear();
+	PROFILER_WATCH_OFF_CTX(CTX_6);
 
+	PROFILER_WATCH_ON_CTX(CTX_7, "c7");
   for (llvm::DenseMap<const Decl*, AttrVec*>::iterator A = DeclAttrs.begin(),
                                                     AEnd = DeclAttrs.end();
        A != AEnd; ++A)
     A->second->~AttrVec();
+	PROFILER_WATCH_OFF_CTX(CTX_7);
+  PROFILER_WATCH_ON_CTX(CTX_8, "c8");
   DeclAttrs.clear();
+	PROFILER_WATCH_OFF_CTX(CTX_8);
 
+  PROFILER_WATCH_ON_CTX(CTX_9, "c9");
   for (const auto &Value : ModuleInitializers)
     Value.second->~PerModuleInitializers();
+	PROFILER_WATCH_OFF_CTX(CTX_9);
+  PROFILER_WATCH_ON_CTX(CTX_10, "c10");
   ModuleInitializers.clear();
+	PROFILER_WATCH_OFF_CTX(CTX_10);
+
+  PROFILER_WAIT_OFF();
 }
 
 ASTContext::~ASTContext() { cleanup(); }

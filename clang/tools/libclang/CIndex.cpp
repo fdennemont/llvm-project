@@ -64,6 +64,7 @@
 #include "SPR_Profiler.h"
 #include <mutex>
 #include <optional>
+#include <clang/AST/SprAllocator.h>
 
 #if LLVM_ENABLE_THREADS != 0 && defined(__APPLE__)
 #define USE_DARWIN_THREADS
@@ -3754,7 +3755,7 @@ bool CursorVisitor::RunVisitorWorkList(VisitorWorkList &WL) {
           if (Visit(Proto.getReturnLoc()))
             return true;
         }
-#endif        
+#endif
       }
       break;
     }
@@ -4275,6 +4276,7 @@ enum CXErrorCode clang_parseTranslationUnit2FullArgv(
 
   CXErrorCode result = CXError_Failure;
   auto ParseTranslationUnitImpl = [=, &result] {
+		PROFILER_REGISTER_THREAD("Clang ParseTranslationUnitImpl");
     PROFILER_WATCH_ON("ParseTranslationUnitImpl");
     noteBottomOfStack();
     result = clang_parseTranslationUnit_Impl(
@@ -4690,6 +4692,7 @@ int clang_saveTranslationUnit(CXTranslationUnit TU, const char *FileName,
 
   CXSaveError result;
   auto SaveTranslationUnitImpl = [=, &result]() {
+		PROFILER_REGISTER_THREAD("Clang SaveTranslationUnitImpl");
     PROFILER_WATCH_ON("SaveTranslationUnitImpl");
     result = clang_saveTranslationUnit_Impl(TU, FileName, options);
     PROFILER_WATCH_OFF();
@@ -4793,9 +4796,12 @@ clang_reparseTranslationUnit_Impl(CXTranslationUnit TU,
     RemappedFiles->push_back(std::make_pair(UF.Filename, MB.release()));
   }
 
-  if (!CXXUnit->Reparse(CXXIdx->getPCHContainerOperations(),
-                        *RemappedFiles.get()))
-    return CXError_Success;
+	{
+		PROFILER_WATCH_CTX(Ctx, "ASTUnit::Reparse");
+		if (!CXXUnit->Reparse(CXXIdx->getPCHContainerOperations(),
+													*RemappedFiles.get()))
+			return CXError_Success;
+	}
   if (isASTReadError(CXXUnit))
     return CXError_ASTReadError;
   return CXError_Failure;
@@ -4815,6 +4821,7 @@ int clang_reparseTranslationUnit(CXTranslationUnit TU,
 
   CXErrorCode result;
   auto ReparseTranslationUnitImpl = [=, &result]() {
+		PROFILER_REGISTER_THREAD("Clang ReparseTranslationUnitImpl");
     PROFILER_WATCH_ON("ReparseTranslationUnitImpl");
     result = clang_reparseTranslationUnit_Impl(
         TU, llvm::ArrayRef(unsaved_files, num_unsaved_files), options);
@@ -8421,6 +8428,7 @@ void clang_annotateTokens(CXTranslationUnit TU, CXToken *Tokens,
   ASTUnit::ConcurrencyCheck Check(*CXXUnit);
 
   auto AnnotateTokensImpl = [=]() {
+		PROFILER_REGISTER_THREAD("Clang AnnotateTokensImpl");
     PROFILER_WATCH_ON("AnnotateTokensImpl");
     clang_annotateTokensImpl(TU, CXXUnit, Tokens, NumTokens, Cursors);
     PROFILER_WATCH_OFF();
@@ -9934,16 +9942,156 @@ enum CXUnaryOperatorKind clang_getCursorUnaryOperatorKind(CXCursor cursor) {
   return CXUnaryOperator_Invalid;
 }
 
+static void* __fastcall MVS6_Malloc(int Size) {
+	return malloc(Size); // hooked by MVS6
+}
+
+static void __fastcall MVS6_Free(void* Data) {
+	free(Data); // hooked by MVS6
+}
+
+
 GPTHREADPROTECTION_ENABLE gThreadProtection_Enable = 0;
 GPTHREADPROTECTION_DISABLE gThreadProtection_Disable = 0;
 GSCOPE_CTX_T_ONENTER gSCOPE_CTX_t_OnEnter = 0;
 GSCOPE_CTX_T_ONLEAVE gSCOPE_CTX_t_OnLeave = 0;
 SRCLOC_INIT gSRCLOC_Init = 0;
+ALLOCATE gAllocate = MVS6_Malloc;
+FREE gFree = MVS6_Free;
 
-void clang_InitProfilerCallbacks(GPTHREADPROTECTION_ENABLE ThreadProtection_Enable, GPTHREADPROTECTION_DISABLE ThreadProtection_Disable, GSCOPE_CTX_T_ONENTER SCOPE_CTX_t_OnEnter, GSCOPE_CTX_T_ONLEAVE SCOPE_CTX_t_OnLeave, SRCLOC_INIT SRCLOC_Init){
-  gThreadProtection_Enable = ThreadProtection_Enable;
+void clang_InitProfilerCallbacks(GPTHREADPROTECTION_ENABLE ThreadProtection_Enable, GPTHREADPROTECTION_DISABLE ThreadProtection_Disable, GSCOPE_CTX_T_ONENTER SCOPE_CTX_t_OnEnter, GSCOPE_CTX_T_ONLEAVE SCOPE_CTX_t_OnLeave, SRCLOC_INIT SRCLOC_Init, ALLOCATE Allocate, FREE Free){
+	SPR_ALLOCATOR::Init();  gThreadProtection_Enable = ThreadProtection_Enable;
   gThreadProtection_Disable = ThreadProtection_Disable;
   gSCOPE_CTX_t_OnEnter = SCOPE_CTX_t_OnEnter;
   gSCOPE_CTX_t_OnLeave = SCOPE_CTX_t_OnLeave;
   gSRCLOC_Init = SRCLOC_Init;
+	if (Allocate)
+		gAllocate = Allocate;
+	if (Free)
+		gFree = Free;
+}
+#if 0
+//-------------------------------------------------------------------------------------------------
+void __cdecl operator delete(void* pBlock){
+  PROFILER_WATCH_ON("delete(void* pBlock)");
+  free(pBlock);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+void __cdecl operator delete[](void* pBlock){
+  PROFILER_WATCH_ON("delete[](void* pBlock)");
+  operator delete(pBlock);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+void __cdecl operator delete(void* pBlock, size_t sz){
+  PROFILER_WATCH_ON("delete(void* pBlock, size_t sz)");
+  operator delete(pBlock);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+void __cdecl operator delete[](void* pBlock, size_t sz){
+  PROFILER_WATCH_ON("delete[](void* pBlock, size_t sz)");
+  operator delete(pBlock);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+void __cdecl operator delete(void* pBlock, std::align_val_t align){
+  PROFILER_WATCH_ON("delete(void* pBlock, std::align_val_t align)");
+  _aligned_free(pBlock);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+void __cdecl operator delete[](void* pBlock, std::align_val_t align){
+  PROFILER_WATCH_ON("delete[](void* pBlock, std::align_val_t align)");
+  operator delete(pBlock, align);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+void __cdecl operator delete(void* pBlock, size_t sz, std::align_val_t align){
+  PROFILER_WATCH_ON("delete(void* pBlock, size_t sz, std::align_val_t align)");
+  operator delete(pBlock, align);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+void* __cdecl operator new(size_t size){
+  PROFILER_WATCH_ON("new(size_t size)");
+  void* pResult = malloc(size);
+  PROFILER_WATCH_OFF();
+  return pResult;
+}
+//-------------------------------------------------------------------------------------------------
+void* __cdecl operator new[](size_t size){
+  PROFILER_WATCH_ON("new[](size_t size)");
+  void* pResult = operator new(size);
+  PROFILER_WATCH_OFF();
+  return pResult;
+}
+//-------------------------------------------------------------------------------------------------
+void* __cdecl operator new(size_t size, std::align_val_t align){
+  PROFILER_WATCH_ON("new(size_t size, std::align_val_t align)");
+  void* pResult = _aligned_malloc(size, (size_t)align);
+  PROFILER_WATCH_OFF();
+  return pResult;
+}
+//-------------------------------------------------------------------------------------------------
+void* __cdecl operator new[](size_t size, std::align_val_t align){
+  PROFILER_WATCH_ON("new[](size_t size, std::align_val_t align)");
+  void* pResult = operator new(size, align);
+  PROFILER_WATCH_OFF();
+  return pResult;
+}
+//-------------------------------------------------------------------------------------------------
+#endif
+
+#if 1
+//-------------------------------------------------------------------------------------------------
+void* APValue::operator new(size_t sz){
+  PROFILER_WATCH_ON("APValue::new");
+  void* pResult = SPR_ALLOCATOR::Allocate(sz);
+  PROFILER_WATCH_OFF();
+  return pResult;
+}
+//-------------------------------------------------------------------------------------------------
+void APValue::operator delete(void* ptr){
+  PROFILER_WATCH_ON("APValue::delete");
+  if(ptr)
+		SPR_ALLOCATOR::Free(ptr);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+void* APValue::operator new[](size_t sz){
+  PROFILER_WATCH_ON("APValue::new[]");
+  void* pResult = SPR_ALLOCATOR::Allocate(sz);
+  PROFILER_WATCH_OFF();
+  return pResult;
+}
+//-------------------------------------------------------------------------------------------------
+void APValue::operator delete[](void* ptr){
+  PROFILER_WATCH_ON("APValue::delete[]");
+  if(ptr)
+		SPR_ALLOCATOR::Free(ptr);
+  PROFILER_WATCH_OFF();
+}
+//-------------------------------------------------------------------------------------------------
+#endif
+
+namespace SPR_ALLOCATOR {
+	void Init() {
+	}
+	void* Allocate(int Size) {
+		PROFILER_WATCH_ON("Allocate");
+		void* Result = gAllocate(Size);
+		PROFILER_WATCH_OFF();
+		return Result;
+	}
+	void Free(void* Data) {
+		PROFILER_WATCH_ON("Free");
+		gFree(Data);
+		PROFILER_WATCH_OFF();
+	}
+	void Deinit() {
+	}
 }

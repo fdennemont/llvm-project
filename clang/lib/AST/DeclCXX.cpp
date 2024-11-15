@@ -3095,7 +3095,7 @@ APValue *LifetimeExtendedTemporaryDecl::getOrCreateValue(bool MayCreate) const {
   assert(getStorageDuration() == SD_Static &&
          "don't need to cache the computed value for this temporary");
   if (MayCreate && !Value) {
-    Value = (new (getASTContext()) APValue);
+    Value = (::new (getASTContext()) APValue);
     getASTContext().addDestruction(Value);
   }
   assert(Value && "may not be null");

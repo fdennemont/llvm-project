@@ -1,40 +1,21 @@
 #pragma once
 
-#include <stdint.h>
+#include "SPR_Callbacks.h"
 
 namespace SPR_PROFILER{
-	struct THREAD_PROTECTOR;
-	struct SCOPE_CTX_t;
-	struct SRCLOC_t;
-}
-
-typedef void (__fastcall* GPTHREADPROTECTION_ENABLE)(SPR_PROFILER::THREAD_PROTECTOR*, char const* szDesc, int bGPUThread);
-typedef void (__fastcall* GPTHREADPROTECTION_DISABLE)(SPR_PROFILER::THREAD_PROTECTOR*);
-typedef void (__fastcall* GSCOPE_CTX_T_ONENTER)(SPR_PROFILER::SCOPE_CTX_t*, const SPR_PROFILER::SRCLOC_t& loc, int bWait);
-typedef void (__fastcall* GSCOPE_CTX_T_ONLEAVE)(SPR_PROFILER::SCOPE_CTX_t*);
-typedef void (__fastcall* SRCLOC_INIT)(SPR_PROFILER::SRCLOC_t*, const char* function, const char* file, uint32_t line, char const* name, uint32_t color);
-
-extern GPTHREADPROTECTION_ENABLE gThreadProtection_Enable;
-extern GPTHREADPROTECTION_DISABLE gThreadProtection_Disable;
-extern GSCOPE_CTX_T_ONENTER gSCOPE_CTX_t_OnEnter;
-extern GSCOPE_CTX_T_ONLEAVE gSCOPE_CTX_t_OnLeave;
-extern SRCLOC_INIT gSRCLOC_Init;
-
-
-namespace SPR_PROFILER{
-	//--------------------------------
+	//------------------------------------------------------------------------------
 	struct SRCLOC_t{
-		void* Data;	
+		void* Data;
 	};
-	//--------------------------------
+	//------------------------------------------------------------------------------
 	struct SRCLOC:SRCLOC_t{
-    SRCLOC(const char* function, const char* file, uint32_t line, char const* name=NULL, uint32_t color=0){
+    SRCLOC(const char* function, const char* file, unsigned int line, char const* name=NULL, unsigned int color=0){
     	if (gSRCLOC_Init){
     		gSRCLOC_Init(this, function, file, line, name, color);
     	}
   	}
   };
-	//--------------------------------
+	//------------------------------------------------------------------------------
 	struct SCOPE_CTX_t{
 		void* data;
 		void OnEnter(const SRCLOC_t& loc, int bWait){
@@ -46,10 +27,19 @@ namespace SPR_PROFILER{
 				gSCOPE_CTX_t_OnLeave(this);
 		}
 	};
-	//--------------------------------
+	//------------------------------------------------------------------------------
+	struct SCOPE_CTX:SCOPE_CTX_t{
+		SCOPE_CTX(const SPR_PROFILER::SRCLOC& Loc){
+			OnEnter(Loc, false);
+		}
+		~SCOPE_CTX(){
+			OnLeave();
+		}
+	};
+	//------------------------------------------------------------------------------
 	struct THREAD_PROTECTOR{
 		void*										pThreadManager;
-		uint32_t								iSlot;
+		unsigned int								iSlot;
 		void*										pWriter;
 		void Enable(char const* szDesc, int bGPUThread){
 			if (gThreadProtection_Enable){
@@ -71,7 +61,7 @@ namespace SPR_PROFILER{
 		}
 		//--
 	};
-	//--------------------------------
+	//------------------------------------------------------------------------------
 }
 
 
@@ -80,9 +70,28 @@ namespace SPR_PROFILER{
 #define PROFILER_LOC_UNIQUE_NAME PROFILER_COMBINE(_ProfilerLoc_,__LINE__)
 #define PROFILER_MAKE_STATIC_LOC(_DESC_) static SPR_PROFILER::SRCLOC PROFILER_LOC_UNIQUE_NAME(__FUNCTION__, __FILE__, __LINE__, _DESC_)
 
+#if 1
 #define PROFILER_WATCH_ON(_DESC_)					PROFILER_MAKE_STATIC_LOC(_DESC_); SPR_PROFILER::SCOPE_CTX_t _CTX_NAME_; _CTX_NAME_.OnEnter(PROFILER_LOC_UNIQUE_NAME, false);
 #define PROFILER_WATCH_OFF()							_CTX_NAME_.OnLeave();
 #define PROFILER_WAIT_ON(_DESC_)					PROFILER_MAKE_STATIC_LOC(_DESC_); SPR_PROFILER::SCOPE_CTX_t _CTX_NAME_; _CTX_NAME_.OnEnter(PROFILER_LOC_UNIQUE_NAME, true);
 #define PROFILER_WAIT_OFF()								_CTX_NAME_.OnLeave();
 #define PROFILER_REGISTER_THREAD(_DESC_)	SPR_PROFILER::THREAD_PROTECTOR PROFILER_COMBINE(_Profiler_Thread_Protector_,__LINE__)((_DESC_));
 
+#define PROFILER_WATCH_ON_CTX(_CTX_NAME_, _DESC_)					PROFILER_MAKE_STATIC_LOC(_DESC_); SPR_PROFILER::SCOPE_CTX_t _CTX_NAME_; _CTX_NAME_.OnEnter(PROFILER_LOC_UNIQUE_NAME, false);
+#define PROFILER_WATCH_OFF_CTX(_CTX_NAME_)							_CTX_NAME_.OnLeave();
+
+#define PROFILER_WATCH(_DESC_)													PROFILER_MAKE_STATIC_LOC(_DESC_); SPR_PROFILER::SCOPE_CTX _CTX_NAME_(PROFILER_LOC_UNIQUE_NAME);
+#define PROFILER_WATCH_CTX(_CTX_NAME_, _DESC_)					PROFILER_MAKE_STATIC_LOC(_DESC_); SPR_PROFILER::SCOPE_CTX _CTX_NAME_(PROFILER_LOC_UNIQUE_NAME);
+#else
+#define PROFILER_WATCH_ON(_DESC_)
+#define PROFILER_WATCH_OFF()
+#define PROFILER_WAIT_ON(_DESC_)
+#define PROFILER_WAIT_OFF()
+#define PROFILER_REGISTER_THREAD(_DESC_)
+
+#define PROFILER_WATCH_ON_CTX(_CTX_NAME_, _DESC_)
+#define PROFILER_WATCH_OFF_CTX(_CTX_NAME_)
+
+#define PROFILER_WATCH(_DESC_)
+#define PROFILER_WATCH_CTX(_CTX_NAME_, _DESC_)
+#endif
