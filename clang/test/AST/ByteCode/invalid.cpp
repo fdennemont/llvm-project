@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -fcxx-exceptions -std=c++20 -fexperimental-new-constant-interpreter -verify=expected,both %s
-// RUN: %clang_cc1 -fcxx-exceptions -std=c++20 -verify=ref,both %s
+// RUN: %clang_cc1 -fcxx-exceptions -std=c++20                                         -verify=ref,both %s
 
 namespace Throw {
 
@@ -54,4 +54,15 @@ namespace Casts {
     B b;
     (void)*reinterpret_cast<void*>(&b); // both-error {{indirection not permitted on operand of type 'void *'}}
   }
+
+  /// Just make sure this doesn't crash.
+  float PR9558 = reinterpret_cast<const float&>("asd");
 }
+
+
+/// This used to crash in collectBlock().
+struct S {
+};
+S s;
+S *sp[2] = {&s, &s};
+S *&spp = sp[1];

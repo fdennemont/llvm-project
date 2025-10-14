@@ -218,8 +218,8 @@ static Status EnsureFDFlags(int fd, int flags) {
 static llvm::Error AddPtraceScopeNote(llvm::Error original_error) {
   Expected<int> ptrace_scope = GetPtraceScope();
   if (auto E = ptrace_scope.takeError()) {
-    Log *log = GetLog(POSIXLog::Process);
-    LLDB_LOG(log, "error reading value of ptrace_scope: {0}", E);
+    LLDB_LOG_ERROR(GetLog(POSIXLog::Process), std::move(E),
+                   "error reading value of ptrace_scope: {0}");
 
     // The original error is probably more interesting than not being able to
     // read or interpret ptrace_scope.
@@ -230,6 +230,7 @@ static llvm::Error AddPtraceScopeNote(llvm::Error original_error) {
   switch (*ptrace_scope) {
   case 1:
   case 2:
+    llvm::consumeError(std::move(original_error));
     return llvm::createStringError(
         std::error_code(errno, std::generic_category()),
         "The current value of ptrace_scope is %d, which can cause ptrace to "
@@ -239,6 +240,7 @@ static llvm::Error AddPtraceScopeNote(llvm::Error original_error) {
         "https://www.kernel.org/doc/Documentation/security/Yama.txt.",
         *ptrace_scope);
   case 3:
+    llvm::consumeError(std::move(original_error));
     return llvm::createStringError(
         std::error_code(errno, std::generic_category()),
         "The current value of ptrace_scope is 3, which will cause ptrace to "
@@ -353,7 +355,7 @@ static std::optional<std::pair<lldb::pid_t, WaitStatus>> WaitPid() {
 
   if (wait_pid == -1) {
     Status error(errno, eErrorTypePOSIX);
-    LLDB_LOG(log, "waitpid(-1, &status, _) failed: {1}", error);
+    LLDB_LOG(log, "waitpid(-1, &status, _) failed: {0}", error);
     return std::nullopt;
   }
 
@@ -829,8 +831,11 @@ void NativeProcessLinux::MonitorBreakpoint(NativeThreadLinux &thread) {
   thread.SetStoppedByBreakpoint();
   FixupBreakpointPCAsNeeded(thread);
 
-  if (m_threads_stepping_with_breakpoint.find(thread.GetID()) !=
-      m_threads_stepping_with_breakpoint.end())
+  NativeRegisterContextLinux &reg_ctx = thread.GetRegisterContext();
+  auto stepping_with_bp_it =
+      m_threads_stepping_with_breakpoint.find(thread.GetID());
+  if (stepping_with_bp_it != m_threads_stepping_with_breakpoint.end() &&
+      llvm::is_contained(stepping_with_bp_it->second, reg_ctx.GetPC()))
     thread.SetStoppedByTrace();
 
   StopRunningThreads(thread.GetID());
@@ -871,7 +876,7 @@ void NativeProcessLinux::MonitorSignal(const siginfo_t &info,
   LLDB_LOG(log,
            "received signal {0} ({1}) with code {2}, (siginfo pid = {3}, "
            "waitpid pid = {4})",
-           Host::GetSignalAsCString(signo), signo, info.si_code,
+           Host::GetSignalAsCString(signo), signo, info.si_code, info.si_pid,
            thread.GetID());
 
   // Check for thread stop notification.
@@ -1096,9 +1101,9 @@ Status NativeProcessLinux::Detach() {
 
   for (const auto &thread : m_threads) {
     Status e = Detach(thread->GetID());
+     // Save the error, but still attempt to detach from other threads.
     if (e.Fail())
-      error =
-          e; // Save the error, but still attempt to detach from other threads.
+      error = e.Clone();
   }
 
   m_intel_pt_collector.Clear();
@@ -1287,7 +1292,7 @@ Status NativeProcessLinux::PopulateMemoryRegionCache() {
       return true;
     }
 
-    Result = Info.takeError();
+    Result = Status::FromError(Info.takeError());
     m_supports_mem_region = LazyBool::eLazyBoolNo;
     LLDB_LOG(log, "failed to parse proc maps: {0}", Result);
     return false;
@@ -1475,7 +1480,7 @@ Status NativeProcessLinux::ReadMemoryTags(int32_t type, lldb::addr_t addr,
   llvm::Expected<NativeRegisterContextLinux::MemoryTaggingDetails> details =
       GetCurrentThread()->GetRegisterContext().GetMemoryTaggingDetails(type);
   if (!details)
-    return Status(details.takeError());
+    return Status::FromError(details.takeError());
 
   // Ignore 0 length read
   if (!len)
@@ -1530,7 +1535,7 @@ Status NativeProcessLinux::WriteMemoryTags(int32_t type, lldb::addr_t addr,
   llvm::Expected<NativeRegisterContextLinux::MemoryTaggingDetails> details =
       GetCurrentThread()->GetRegisterContext().GetMemoryTaggingDetails(type);
   if (!details)
-    return Status(details.takeError());
+    return Status::FromError(details.takeError());
 
   // Ignore 0 length write
   if (!len)
@@ -1547,18 +1552,18 @@ Status NativeProcessLinux::WriteMemoryTags(int32_t type, lldb::addr_t addr,
   llvm::Expected<std::vector<lldb::addr_t>> unpacked_tags_or_err =
       details->manager->UnpackTagsData(tags);
   if (!unpacked_tags_or_err)
-    return Status(unpacked_tags_or_err.takeError());
+    return Status::FromError(unpacked_tags_or_err.takeError());
 
   llvm::Expected<std::vector<lldb::addr_t>> repeated_tags_or_err =
       details->manager->RepeatTagsForRange(*unpacked_tags_or_err, range);
   if (!repeated_tags_or_err)
-    return Status(repeated_tags_or_err.takeError());
+    return Status::FromError(repeated_tags_or_err.takeError());
 
   // Repack them for ptrace to use
   llvm::Expected<std::vector<uint8_t>> final_tag_data =
       details->manager->PackTags(*repeated_tags_or_err);
   if (!final_tag_data)
-    return Status(final_tag_data.takeError());
+    return Status::FromError(final_tag_data.takeError());
 
   struct iovec tags_vec;
   uint8_t *src = final_tag_data->data();
@@ -1790,7 +1795,7 @@ void NativeProcessLinux::NotifyTracersProcessWillResume() {
 
 Status NativeProcessLinux::NotifyTracersOfNewThread(lldb::tid_t tid) {
   Log *log = GetLog(POSIXLog::Thread);
-  Status error(m_intel_pt_collector.OnThreadCreated(tid));
+  Status error = Status::FromError(m_intel_pt_collector.OnThreadCreated(tid));
   if (error.Fail())
     LLDB_LOG(log, "Failed to trace a new thread with intel-pt, tid = {0}. {1}",
              tid, error.AsCString());
@@ -1799,7 +1804,7 @@ Status NativeProcessLinux::NotifyTracersOfNewThread(lldb::tid_t tid) {
 
 Status NativeProcessLinux::NotifyTracersOfThreadDestroyed(lldb::tid_t tid) {
   Log *log = GetLog(POSIXLog::Thread);
-  Status error(m_intel_pt_collector.OnThreadDestroyed(tid));
+  Status error = Status::FromError(m_intel_pt_collector.OnThreadDestroyed(tid));
   if (error.Fail())
     LLDB_LOG(log,
              "Failed to stop a destroyed thread with intel-pt, tid = {0}. {1}",
@@ -1905,13 +1910,13 @@ Status NativeProcessLinux::ResumeThread(NativeThreadLinux &thread,
   // reflect it is running after this completes.
   switch (state) {
   case eStateRunning: {
-    const auto resume_result = thread.Resume(signo);
+    Status resume_result = thread.Resume(signo);
     if (resume_result.Success())
       SetState(eStateRunning, true);
     return resume_result;
   }
   case eStateStepping: {
-    const auto step_result = thread.SingleStep(signo);
+    Status step_result = thread.SingleStep(signo);
     if (step_result.Success())
       SetState(eStateRunning, true);
     return step_result;
@@ -1957,10 +1962,12 @@ void NativeProcessLinux::SignalIfAllThreadsStopped() {
   // Clear any temporary breakpoints we used to implement software single
   // stepping.
   for (const auto &thread_info : m_threads_stepping_with_breakpoint) {
-    Status error = RemoveBreakpoint(thread_info.second);
-    if (error.Fail())
-      LLDB_LOG(log, "pid = {0} remove stepping breakpoint: {1}",
-               thread_info.first, error);
+    for (auto &&bp_addr : thread_info.second) {
+      Status error = RemoveBreakpoint(bp_addr);
+      if (error.Fail())
+        LLDB_LOG(log, "pid = {0} remove stepping breakpoint: {1}",
+                 thread_info.first, error);
+    }
   }
   m_threads_stepping_with_breakpoint.clear();
 

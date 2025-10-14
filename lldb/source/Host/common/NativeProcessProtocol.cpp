@@ -43,7 +43,7 @@ lldb_private::Status NativeProcessProtocol::Interrupt() {
 
 Status NativeProcessProtocol::IgnoreSignals(llvm::ArrayRef<int> signals) {
   m_signals_to_ignore.clear();
-  m_signals_to_ignore.insert(signals.begin(), signals.end());
+  m_signals_to_ignore.insert_range(signals);
   return Status();
 }
 
@@ -215,17 +215,17 @@ Status NativeProcessProtocol::RemoveWatchpoint(lldb::addr_t addr) {
   for (const auto &thread : m_threads) {
     assert(thread && "thread list should not have a NULL thread!");
 
-    const Status thread_error = thread->RemoveWatchpoint(addr);
+    Status thread_error = thread->RemoveWatchpoint(addr);
     if (thread_error.Fail()) {
       // Keep track of the first thread error if any threads fail. We want to
       // try to remove the watchpoint from every thread, though, even if one or
       // more have errors.
       if (!overall_error.Fail())
-        overall_error = thread_error;
+        overall_error = std::move(thread_error);
     }
   }
-  const Status error = m_watchpoint_list.Remove(addr);
-  return overall_error.Fail() ? overall_error : error;
+  Status error = m_watchpoint_list.Remove(addr);
+  return overall_error.Fail() ? std::move(overall_error) : std::move(error);
 }
 
 const HardwareBreakpointMap &
@@ -350,7 +350,7 @@ Status NativeProcessProtocol::SetSoftwareBreakpoint(lldb::addr_t addr,
   }
   auto expected_bkpt = EnableSoftwareBreakpoint(addr, size_hint);
   if (!expected_bkpt)
-    return Status(expected_bkpt.takeError());
+    return Status::FromError(expected_bkpt.takeError());
 
   m_software_breakpoints.emplace(addr, std::move(*expected_bkpt));
   return Status();
@@ -366,12 +366,19 @@ Status NativeProcessProtocol::RemoveSoftwareBreakpoint(lldb::addr_t addr) {
   if (--it->second.ref_count > 0)
     return Status();
 
+  // Remove the entry from m_software_breakpoints rightaway, so that we don't
+  // leave behind an entry with ref_count == 0 in case one of the following
+  // conditions returns an error. The breakpoint is moved so that it can be
+  // accessed below.
+  SoftwareBreakpoint bkpt = std::move(it->second);
+  m_software_breakpoints.erase(it);
+
   // This is the last reference. Let's remove the breakpoint.
   Status error;
 
   // Clear a software breakpoint instruction
-  llvm::SmallVector<uint8_t, 4> curr_break_op(
-      it->second.breakpoint_opcodes.size(), 0);
+  llvm::SmallVector<uint8_t, 4> curr_break_op(bkpt.breakpoint_opcodes.size(),
+                                              0);
 
   // Read the breakpoint opcode
   size_t bytes_read = 0;
@@ -382,10 +389,10 @@ Status NativeProcessProtocol::RemoveSoftwareBreakpoint(lldb::addr_t addr) {
         "addr=0x%" PRIx64 ": tried to read %zu bytes but only read %zu", addr,
         curr_break_op.size(), bytes_read);
   }
-  const auto &saved = it->second.saved_opcodes;
+  const auto &saved = bkpt.saved_opcodes;
   // Make sure the breakpoint opcode exists at this address
-  if (llvm::ArrayRef(curr_break_op) != it->second.breakpoint_opcodes) {
-    if (curr_break_op != it->second.saved_opcodes)
+  if (llvm::ArrayRef(curr_break_op) != bkpt.breakpoint_opcodes) {
+    if (curr_break_op != bkpt.saved_opcodes)
       return Status::FromErrorString(
           "Original breakpoint trap is no longer in memory.");
     LLDB_LOG(log,
@@ -418,7 +425,6 @@ Status NativeProcessProtocol::RemoveSoftwareBreakpoint(lldb::addr_t addr) {
                llvm::make_range(saved.begin(), saved.end()));
   }
 
-  m_software_breakpoints.erase(it);
   return Status();
 }
 
